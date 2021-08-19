@@ -1,13 +1,16 @@
 import cv2 as cv
 import time
 import numpy as np
+from numpy_ringbuffer import RingBuffer
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
-
+import json
+import scipy.signal
 
 GRIDIRON = []
 FRAMEWINDOWNAME = "AutoCutMarks"
+DEBUG = False
 
 
 def clicked(event, x, y, flags, param):
@@ -55,23 +58,78 @@ def setGridIron(videofile):
         ret, frame2 = cap.read()
 
     cap.release()
-    cv.destroyAllWindows()
+    #cv.destroyAllWindows()
 
 
 def plot_motion_graph(motionGraph, debug):
     x_coords, y_coords = zip(*motionGraph)
-    #coefficients = np.polyfit(x_coords,y_coords,7)
+    plt.plot(x_coords, y_coords, '-')
+    #if debug:
+    #    plt.pause(0.0005)
+    #else: 
+    #    plt.show()
+
+
+def analyze_motion_graph(motionGraph):
+    frame_rate = 30
+
+    x_coords, y_coords = zip(*motionGraph)
+    #ring = RingBuffer(capacity=10)
+    #for (frame, motions) in motionGraph[1:-2]:
+        #ring.append(motions)
+        #print(ring)
+        #if len(ring) > 8:
+        #   if ring[-1] - ring[0] > 7:
+        #        print("############SNAP")
+    
+    #coefficients = np.polyfit(x_coords,y_coords,50)
     #poly = np.poly1d(coefficients)
     #new_x = np.linspace(x_coords[0], x_coords[-1])
     #new_y = poly(new_x)
-    plt.plot(x_coords, y_coords, '-')
-    if debug:
-        plt.pause(0.0005)
-    else: 
-        plt.show()
+    #plt.plot(new_x, new_y)
+
+    # smoothing the measurements
+    filter_window = int(0.5 * frame_rate) # 0.5s * frame rate
+    if filter_window % 2 == 0:
+        filter_window = filter_window + 1 # only odd filter windows allowed for savgol
+    savgol_polynom_degree = 3
+    smoothed_y = scipy.signal.savgol_filter(y_coords,filter_window, savgol_polynom_degree)
+
+    firstDeriviative = []
+    assert(len(x_coords) == len(smoothed_y))
+    for i in range(1, len(smoothed_y)-filter_window):
+        motionsA = smoothed_y[i]
+        motionsB = smoothed_y[i+filter_window]
+        increase = motionsB - motionsA / 1.0
+        #print(increase)
+        firstDeriviative.append((x_coords[i], increase))
+    
+    firstDeriviative_x, firstDeriviative_y = zip(*firstDeriviative)
+    max_increase = np.max(firstDeriviative_y)
+    snaps = []
+    for (x,y) in firstDeriviative:
+        if y >= max_increase * 0.8:
+            if len(snaps) == 0 or (x - snaps[-1] > 3*frame_rate):  # there can be no two snaps within 3 seconds
+                print("snap at frame", x)
+                snaps.append(x)
+    #for i in range(1, len(motionGraph)-1):
+    #    (_, motionsA) = motionGraph[i-1]
+    #    (_, motionsB) = motionGraph[i+1]
+    #    increase = motionsB - motionsA
+    #    print(increase)
+    #    firstDeriviative.append((i, increase))
+    #plot_motion_graph(motionGraph, debug=False)
+    #plt.plot(x_coords, smoothed_y)
+    #plot_motion_graph(firstDeriviative, debug=False)
+    #plt.show()
+
+    return snaps
+    
+
+        
 
 
-def findCutMarks(videofile, gridiron):
+def generateMotionGraph(videofile, gridiron):
     cap = cv.VideoCapture(videofile)
     fps = cap.get(cv.CAP_PROP_FPS)
     ret, frame1 = cap.read()
@@ -80,7 +138,7 @@ def findCutMarks(videofile, gridiron):
 
 
     # Maybe only use every 2nd or 3rd fame
-    while cap.isOpened():
+    while cap.isOpened():#json.dump(motionGraph, f)
         # if frame is read correctly ret is True
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
@@ -115,19 +173,19 @@ def findCutMarks(videofile, gridiron):
             cv.rectangle(showed_frame, (x,y), (x+w, y+h), (0,255,0), 2)
         
         current_frame_number = cap.get(cv.CAP_PROP_POS_FRAMES)
-        motionGraph.append((current_frame_number, len(motions)))
+        motionGraph.append((int(current_frame_number), len(motions)))
         if current_frame_number % 100 == 0 and len(motionGraph) > 1:
             pass#plot_motion_graph(motionGraph, debug=True)
-        if len(motions) < 2:
-            cv.putText(showed_frame, "SNAP!", (50,20), cv.FONT_HERSHEY_SIMPLEX,1, (0,0, 255), 3)
-            snapped = True
         else:
             text = "Motions: " + str(len(motions))
             cv.putText(showed_frame, text, (10,20), cv.FONT_HERSHEY_SIMPLEX,1, (0,0, 255), 3)
 
-        cv.imshow(FRAMEWINDOWNAME, showed_frame)
+        if DEBUG:
+          cv.imshow(FRAMEWINDOWNAME, showed_frame)
+          #plot_motion_graph(motionGraph, debug=True)
         #if snapped:
         #    time.sleep(0.3)
+          
         
 
 
@@ -137,11 +195,42 @@ def findCutMarks(videofile, gridiron):
         ret, frame2 = cap.read()
 
     cap.release()
-    cv.destroyAllWindows()
-    plot_motion_graph(motionGraph, debug=False)
+    #cv.destroyAllWindows()
+    return motionGraph
 
 
 
+
+def test_analyzed_cutmarks(cutmarks):
+    cv.namedWindow(FRAMEWINDOWNAME)
+    cap = cv.VideoCapture("test.mp4")
+    fps = cap.get(cv.CAP_PROP_FPS)
+    for (begin, end) in cutmarks:
+        cap.set(cv.CAP_PROP_POS_FRAMES, begin-1)
+        current_position = begin-1
+        while current_position < end:
+            ret, frame = cap.read()
+            current_position  = cap.get(cv.CAP_PROP_POS_FRAMES)
+            if ret and cap.isOpened():
+                cv.imshow(FRAMEWINDOWNAME, frame)
+                if cv.waitKey(int(fps)) == ord('q'):
+                    break
+            else:
+                print("Can't receive frame (stream end?). Exiting ...")
+                break
+
+
+def calculateCutMarks(snaps):
+    fps = 30
+
+    cutmarks = []
+    for snap in snaps:
+        begin = max(0, snap-2*fps)
+        end = snap + 10*fps
+        cutmarks.append((begin, end))
+
+    return cutmarks
+    
 
 ##########################
 #setGridIron("test.mp4");
@@ -155,7 +244,22 @@ test_grid_iron = [
     (1825 , 566),
     (1120 , 171),
 ]
-findCutMarks("test.mp4", test_grid_iron)
+
+load_test_graph = True
+f = open("motionGraph.json", "r")
+if load_test_graph:
+    motionGraph = json.load(f)
+else:
+    motionGraph  = generateMotionGraph("test.mp4", test_grid_iron)
+    motionGraph = [(1,2), (3,4)]
+f.close
+
+snaps = analyze_motion_graph(motionGraph)
+
+cutmarks = calculateCutMarks(snaps)
+
+test_analyzed_cutmarks(cutmarks)
+
 
 
 
