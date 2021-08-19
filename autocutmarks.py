@@ -21,7 +21,7 @@ def clicked(event, x, y, flags, param):
         print(text)
 
 def setGridIron(videofile):
-    cap = cv.VideoCapture("test.mp4")
+    cap = cv.VideoCapture(videofile)
     fps = cap.get(cv.CAP_PROP_FPS)
     ret, frame1 = cap.read()
     ret, frame2 = cap.read()
@@ -93,7 +93,7 @@ def analyze_motion_graph(motionGraph):
     if filter_window % 2 == 0:
         filter_window = filter_window + 1 # only odd filter windows allowed for savgol
     savgol_polynom_degree = 3
-    smoothed_y = scipy.signal.savgol_filter(y_coords,filter_window, savgol_polynom_degree)
+    smoothed_y = scipy.signal.savgol_filter(y_coords, filter_window, savgol_polynom_degree)
 
     firstDeriviative = []
     assert(len(x_coords) == len(smoothed_y))
@@ -104,11 +104,11 @@ def analyze_motion_graph(motionGraph):
         #print(increase)
         firstDeriviative.append((x_coords[i], increase))
     
-    firstDeriviative_x, firstDeriviative_y = zip(*firstDeriviative)
+    _, firstDeriviative_y = zip(*firstDeriviative)
     max_increase = np.max(firstDeriviative_y)
     snaps = []
     for (x,y) in firstDeriviative:
-        if y >= max_increase * 0.8:
+        if y >= max_increase * 0.6:
             if len(snaps) == 0 or (x - snaps[-1] > 3*frame_rate):  # there can be no two snaps within 3 seconds
                 print("snap at frame", x)
                 snaps.append(x)
@@ -132,6 +132,7 @@ def analyze_motion_graph(motionGraph):
 def generateMotionGraph(videofile, gridiron):
     cap = cv.VideoCapture(videofile)
     fps = cap.get(cv.CAP_PROP_FPS)
+    total_number_frames = cap.get(cv.CAP_PROP_FRAME_COUNT)
     ret, frame1 = cap.read()
     ret, frame2 = cap.read()
     motionGraph = []
@@ -163,10 +164,9 @@ def generateMotionGraph(videofile, gridiron):
         contours, _ = cv.findContours(dilated, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
         motions = []
 
-        snapped = False
 
         for contour in contours:
-            if cv.contourArea(contour) < 900:
+            if cv.contourArea(contour) < 700:
                 continue
             motions.append(contour)
             (x,y, w,h) = cv.boundingRect(contour)
@@ -182,20 +182,21 @@ def generateMotionGraph(videofile, gridiron):
 
         if DEBUG:
           cv.imshow(FRAMEWINDOWNAME, showed_frame)
+          if cv.waitKey(1) == ord('q'):
+            break
           #plot_motion_graph(motionGraph, debug=True)
         #if snapped:
         #    time.sleep(0.3)
-          
-        
-
-
-        if cv.waitKey(1) == ord('q'):
-            break
         frame1 = frame2
         ret, frame2 = cap.read()
+        frameNo = cap.get(cv.CAP_PROP_POS_FRAMES)
+        if frameNo % 100 == 0:
+            print("analyzed frame " + str(frameNo) + " of " + str(total_number_frames))
+        if frameNo > 2000:
+            break
 
     cap.release()
-    #cv.destroyAllWindows()
+    cv.destroyAllWindows()
     return motionGraph
 
 
@@ -245,13 +246,14 @@ test_grid_iron = [
     (1120 , 171),
 ]
 
-load_test_graph = True
-f = open("motionGraph.json", "r")
+load_test_graph = False
 if load_test_graph:
+    f = open("motionGraph.json", "r")
     motionGraph = json.load(f)
 else:
-    motionGraph  = generateMotionGraph("test.mp4", test_grid_iron)
-    motionGraph = [(1,2), (3,4)]
+    f = open("motionGraph.json", "w")
+    motionGraph  = generateMotionGraph("blub.mp4", test_grid_iron)
+    json.dump(motionGraph, f)
 f.close
 
 snaps = analyze_motion_graph(motionGraph)
