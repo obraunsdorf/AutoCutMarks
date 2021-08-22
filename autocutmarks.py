@@ -58,7 +58,9 @@ def setGridIron(videofile):
         ret, frame2 = cap.read()
 
     cap.release()
-    #cv.destroyAllWindows()
+    cv.destroyAllWindows()
+
+    return GRIDIRON
 
 
 def plot_motion_graph(motionGraph, debug):
@@ -119,9 +121,9 @@ def analyze_motion_graph(motionGraph):
     #    print(increase)
     #    firstDeriviative.append((i, increase))
     #plot_motion_graph(motionGraph, debug=False)
-    #plt.plot(x_coords, smoothed_y)
-    #plot_motion_graph(firstDeriviative, debug=False)
-    #plt.show()
+    plt.plot(x_coords, smoothed_y)
+    plot_motion_graph(firstDeriviative, debug=False)
+    plt.show()
 
     return snaps
     
@@ -202,9 +204,9 @@ def generateMotionGraph(videofile, gridiron):
 
 
 
-def test_analyzed_cutmarks(cutmarks):
+def test_analyzed_cutmarks(videofile, cutmarks):
     cv.namedWindow(FRAMEWINDOWNAME)
-    cap = cv.VideoCapture("test.mp4")
+    cap = cv.VideoCapture(videofile)
     fps = cap.get(cv.CAP_PROP_FPS)
     for (begin, end) in cutmarks:
         cap.set(cv.CAP_PROP_POS_FRAMES, begin-1)
@@ -234,19 +236,12 @@ def calculateCutMarks(snaps):
     
 
 ##########################
-setGridIron("test.mp4");
-#test_grid_iron = [
-#    (712, 164),
-#    (712 , 164),
-#    (244 , 341),
-#    (8 , 492),
-#    (73 , 731),
-#    (1738 , 772),
-#    (1825 , 566),
-#    (1120 , 171),
-#]
-findCutMarks("test.mp4", test_grid_iron)
-test_grid_iron = [
+# main
+##########################
+videofile = "blub.mp4"
+
+#grid_iron = setGridIron(videofile);
+grid_iron = [
     (712, 164),
     (712 , 164),
     (244 , 341),
@@ -263,7 +258,7 @@ if load_test_graph:
     motionGraph = json.load(f)
 else:
     f = open("motionGraph.json", "w")
-    motionGraph  = generateMotionGraph("blub.mp4", test_grid_iron)
+    motionGraph  = generateMotionGraph(videofile, grid_iron)
     json.dump(motionGraph, f)
 f.close
 
@@ -271,7 +266,7 @@ snaps = analyze_motion_graph(motionGraph)
 
 cutmarks = calculateCutMarks(snaps)
 
-test_analyzed_cutmarks(cutmarks)
+test_analyzed_cutmarks(videofile, cutmarks)
 
 
 
