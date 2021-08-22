@@ -234,7 +234,18 @@ def calculateCutMarks(snaps):
     
 
 ##########################
-#setGridIron("test.mp4");
+setGridIron("test.mp4");
+#test_grid_iron = [
+#    (712, 164),
+#    (712 , 164),
+#    (244 , 341),
+#    (8 , 492),
+#    (73 , 731),
+#    (1738 , 772),
+#    (1825 , 566),
+#    (1120 , 171),
+#]
+findCutMarks("test.mp4", test_grid_iron)
 test_grid_iron = [
     (712, 164),
     (712 , 164),
