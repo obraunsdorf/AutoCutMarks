@@ -63,7 +63,7 @@ def setGridIron(videofile):
 
     gridiron = GRIDIRON
     GRIDIRON = []
-    return GRIDIRON
+    return gridiron
 
 
 def plot_motion_graph(motionGraph, debug):
@@ -141,6 +141,8 @@ def generateMotionGraph(videofile, gridiron_near, gridiron_far):
     ret, frame2 = cap.read()
     motionGraph = []
 
+    if len(gridiron_near) < 3 or len(gridiron_far) < 3:
+        print("WARNING: gridiron not set properly")
 
     # Maybe only use every 2nd or 3rd fame
     while cap.isOpened():#json.dump(motionGraph, f)
@@ -149,7 +151,7 @@ def generateMotionGraph(videofile, gridiron_near, gridiron_far):
             print("Can't receive frame (stream end?). Exiting ...")
             break
         
-        showed_frame = frame1
+        showed_frame = frame1.copy()
 
         motions = []
         for (gridiron, minimum_contour_size) in [(gridiron_near, 900), (gridiron_far, 500)]:
