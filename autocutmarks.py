@@ -10,7 +10,7 @@ import scipy.signal
 
 GRIDIRON = []
 FRAMEWINDOWNAME = "AutoCutMarks"
-DEBUG = False
+DEBUG = True
 
 
 def clicked(event, x, y, flags, param):
@@ -21,6 +21,7 @@ def clicked(event, x, y, flags, param):
         print(text)
 
 def setGridIron(videofile):
+    global GRIDIRON
     cap = cv.VideoCapture(videofile)
     fps = cap.get(cv.CAP_PROP_FPS)
     ret, frame1 = cap.read()
@@ -60,6 +61,8 @@ def setGridIron(videofile):
     cap.release()
     cv.destroyAllWindows()
 
+    gridiron = GRIDIRON
+    GRIDIRON = []
     return GRIDIRON
 
 
@@ -72,7 +75,7 @@ def plot_motion_graph(motionGraph, debug):
     #    plt.show()
 
 
-def analyze_motion_graph(motionGraph):
+def analyze_motion_graph(motionGraph, snap_threshold_percentage):
     frame_rate = 30
 
     x_coords, y_coords = zip(*motionGraph)
@@ -110,7 +113,7 @@ def analyze_motion_graph(motionGraph):
     max_increase = np.max(firstDeriviative_y)
     snaps = []
     for (x,y) in firstDeriviative:
-        if y >= max_increase * 0.6:
+        if y >= max_increase * snap_threshold_percentage:
             if len(snaps) == 0 or (x - snaps[-1] > 3*frame_rate):  # there can be no two snaps within 3 seconds
                 print("snap at frame", x)
                 snaps.append(x)
@@ -131,9 +134,8 @@ def analyze_motion_graph(motionGraph):
         
 
 
-def generateMotionGraph(videofile, gridiron):
+def generateMotionGraph(videofile, gridiron_near, gridiron_far):
     cap = cv.VideoCapture(videofile)
-    fps = cap.get(cv.CAP_PROP_FPS)
     total_number_frames = cap.get(cv.CAP_PROP_FRAME_COUNT)
     ret, frame1 = cap.read()
     ret, frame2 = cap.read()
@@ -146,38 +148,42 @@ def generateMotionGraph(videofile, gridiron):
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             break
-
-        if len(gridiron) >= 3:
-            pts = np.array(gridiron)
-            mask1= np.zeros(frame1.shape[:2], np.uint8)
-            mask2= np.zeros(frame2.shape[:2], np.uint8)
-            cv.drawContours(mask1, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
-            cv.drawContours(mask2, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
-            frame1 = cv.bitwise_and(frame1, frame1, mask=mask1)
-            frame2 = cv.bitwise_and(frame2, frame2, mask=mask2)
-
+        
         showed_frame = frame1
 
-        diff = cv.absdiff(frame1, frame2)
-        gray = cv.cvtColor(diff, cv.COLOR_BGR2GRAY)
-        blur = cv.GaussianBlur(gray,(5,5), 0)
-        _, threshold = cv.threshold(blur, 20, 255, cv.THRESH_BINARY)
-        dilated = cv.dilate(threshold, None, iterations=3)
-        contours, _ = cv.findContours(dilated, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
         motions = []
+        for (gridiron, minimum_contour_size) in [(gridiron_near, 900), (gridiron_far, 500)]:
+            frameA = frame1.copy()
+            frameB = frame2.copy()
+            if len(gridiron) >= 3:
+                pts = np.array(gridiron)
+                mask1= np.zeros(frameA.shape[:2], np.uint8)
+                mask2= np.zeros(frameB.shape[:2], np.uint8)
+                cv.drawContours(mask1, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
+                cv.drawContours(mask2, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
+                frameA = cv.bitwise_and(frameA, frameA, mask=mask1)
+                frameB = cv.bitwise_and(frameB, frameB, mask=mask2)
+
+            diff = cv.absdiff(frameA, frameB)
+            gray = cv.cvtColor(diff, cv.COLOR_BGR2GRAY)
+            blur = cv.GaussianBlur(gray,(5,5), 0)
+            _, threshold = cv.threshold(blur, 20, 255, cv.THRESH_BINARY)
+            dilated = cv.dilate(threshold, None, iterations=3)
+            contours, _ = cv.findContours(dilated, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
 
-        for contour in contours:
-            if cv.contourArea(contour) < 700:
-                continue
-            motions.append(contour)
-            (x,y, w,h) = cv.boundingRect(contour)
-            cv.rectangle(showed_frame, (x,y), (x+w, y+h), (0,255,0), 2)
-        
+            for contour in contours:
+                if cv.contourArea(contour) < minimum_contour_size:
+                    continue
+                motions.append(contour)
+                (x,y, w,h) = cv.boundingRect(contour)
+                cv.rectangle(showed_frame, (x,y), (x+w, y+h), (0,255,0), 2)
+            
         current_frame_number = cap.get(cv.CAP_PROP_POS_FRAMES)
         motionGraph.append((int(current_frame_number), len(motions)))
+
         if current_frame_number % 100 == 0 and len(motionGraph) > 1:
-            pass#plot_motion_graph(motionGraph, debug=True)
+            pass #plot_motion_graph(motionGraph, debug=True)
         else:
             text = "Motions: " + str(len(motions))
             cv.putText(showed_frame, text, (10,20), cv.FONT_HERSHEY_SIMPLEX,1, (0,0, 255), 3)
@@ -194,8 +200,8 @@ def generateMotionGraph(videofile, gridiron):
         frameNo = cap.get(cv.CAP_PROP_POS_FRAMES)
         if frameNo % 100 == 0:
             print("analyzed frame " + str(frameNo) + " of " + str(total_number_frames))
-        if frameNo > 2000:
-            break
+        #if frameNo > 2000:
+        #    break
 
     cap.release()
     cv.destroyAllWindows()
@@ -240,8 +246,8 @@ def calculateCutMarks(snaps):
 ##########################
 videofile = "blub.mp4"
 
-#grid_iron = setGridIron(videofile);
-grid_iron = [
+#grid_iron_near = setGridIron(videofile)
+grid_iron_near = [
     (712, 164),
     (712 , 164),
     (244 , 341),
@@ -250,7 +256,15 @@ grid_iron = [
     (1738 , 772),
     (1825 , 566),
     (1120 , 171),
-]
+ ]
+
+#grid_iron_far = setGridIron(videofile)
+grid_iron_far = [
+    (722, 165),
+    (523 , 237),
+    (1303 , 259),
+    (1143 , 174),
+ ]
 
 load_test_graph = False
 if load_test_graph:
@@ -258,11 +272,38 @@ if load_test_graph:
     motionGraph = json.load(f)
 else:
     f = open("motionGraph.json", "w")
-    motionGraph  = generateMotionGraph(videofile, grid_iron)
+    motionGraph  = generateMotionGraph(videofile, grid_iron_near, grid_iron_far)
     json.dump(motionGraph, f)
 f.close
 
-snaps = analyze_motion_graph(motionGraph)
+snaps = analyze_motion_graph(motionGraph,0.5)
+#snaps = [
+#1116,   # G
+#2062,   #M P1
+#6941,   
+#7876,   
+#8875,   
+#15687,  
+#16893,  
+#18120,  
+#18379,  
+#19413,  
+#19592,  
+#22586,  
+#24485,  
+#26385,  
+#27320,  
+#30462,  
+#31299,  
+#32254,  
+#38207,  
+#39319,  
+#40430,  
+#42087,  
+#44410,  
+#45760,  
+#46705
+#]  
 
 cutmarks = calculateCutMarks(snaps)
 
