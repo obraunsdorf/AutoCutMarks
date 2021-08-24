@@ -10,7 +10,7 @@ import scipy.signal
 
 GRIDIRON = []
 FRAMEWINDOWNAME = "AutoCutMarks"
-DEBUG = True
+DEBUG = False
 
 
 def clicked(event, x, y, flags, param):
@@ -154,7 +154,7 @@ def generateMotionGraph(videofile, gridiron_near, gridiron_far):
         showed_frame = frame1.copy()
 
         motions = []
-        for (gridiron, minimum_contour_size) in [(gridiron_near, 900), (gridiron_far, 500)]:
+        for (gridiron, minimum_contour_size) in [(gridiron_far, 500), (gridiron_near, 900)]:
             frameA = frame1.copy()
             frameB = frame2.copy()
             if len(gridiron) >= 3:
@@ -250,15 +250,21 @@ videofile = "blub.mp4"
 
 #grid_iron_near = setGridIron(videofile)
 grid_iron_near = [
-    (712, 164),
-    (712 , 164),
-    (244 , 341),
-    (8 , 492),
-    (73 , 731),
-    (1738 , 772),
-    (1825 , 566),
-    (1120 , 171),
- ]
+(518, 245),
+(250, 371),
+(7, 504),
+(6, 715),
+(321, 761),
+(683, 782),
+(1105, 796),
+(1538, 784),
+(1907, 746),
+(1908, 650),
+(1605, 437),
+(1399, 321),
+(1300, 268),
+(1259, 250),
+]
 
 #grid_iron_far = setGridIron(videofile)
 grid_iron_far = [
@@ -268,7 +274,7 @@ grid_iron_far = [
     (1143 , 174),
  ]
 
-load_test_graph = False
+load_test_graph = True
 if load_test_graph:
     f = open("motionGraph.json", "r")
     motionGraph = json.load(f)
@@ -278,34 +284,7 @@ else:
     json.dump(motionGraph, f)
 f.close
 
-snaps = analyze_motion_graph(motionGraph,0.5)
-#snaps = [
-#1116,   # G
-#2062,   #M P1
-#6941,   
-#7876,   
-#8875,   
-#15687,  
-#16893,  
-#18120,  
-#18379,  
-#19413,  
-#19592,  
-#22586,  
-#24485,  
-#26385,  
-#27320,  
-#30462,  
-#31299,  
-#32254,  
-#38207,  
-#39319,  
-#40430,  
-#42087,  
-#44410,  
-#45760,  
-#46705
-#]  
+snaps = analyze_motion_graph(motionGraph,0.4) 
 
 cutmarks = calculateCutMarks(snaps)
 
