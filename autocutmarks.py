@@ -6,6 +6,7 @@ matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import json
 import scipy.signal
+import sys
 
 GRIDIRON = []
 FRAMEWINDOWNAME = "AutoCutMarks"
@@ -245,35 +246,40 @@ def calculateCutMarks(snaps):
 ##########################
 # main
 ##########################
-videofile = "blub.mp4"
 
-#grid_iron_near = setGridIron(videofile)
-grid_iron_near = [
-(518, 245),
-(250, 371),
-(7, 504),
-(6, 715),
-(321, 761),
-(683, 782),
-(1105, 796),
-(1538, 784),
-(1907, 746),
-(1908, 650),
-(1605, 437),
-(1399, 321),
-(1300, 268),
-(1259, 250),
-]
+print(sys.argv)
+if len(sys.argv) < 2:
+    print("please specifiy a video file")
+    exit(1)
+videofile = sys.argv[1]
 
-#grid_iron_far = setGridIron(videofile)
-grid_iron_far = [
-    (722, 165),
-    (523 , 237),
-    (1303 , 259),
-    (1143 , 174),
- ]
+grid_iron_near = setGridIron(videofile)
+#grid_iron_near = [
+#(518, 245),
+#(250, 371),
+#(7, 504),
+#(6, 715),
+#(321, 761),
+#(683, 782),
+#(1105, 796),
+#(1538, 784),
+#(1907, 746),
+#(1908, 650),
+#(1605, 437),
+#(1399, 321),
+#(1300, 268),
+#(1259, 250),
+#]
 
-load_test_graph = True
+grid_iron_far = setGridIron(videofile)
+#grid_iron_far = [
+#    (722, 165),
+#    (523 , 237),
+#    (1303 , 259),
+#    (1143 , 174),
+# ]
+
+load_test_graph = False
 if load_test_graph:
     f = open("motionGraph.json", "r")
     motionGraph = json.load(f)
@@ -288,7 +294,3 @@ snaps = analyze_motion_graph(motionGraph,0.4)
 cutmarks = calculateCutMarks(snaps)
 
 test_analyzed_cutmarks(videofile, cutmarks)
-
-
-
-
