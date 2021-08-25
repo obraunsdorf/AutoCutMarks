@@ -41,5 +41,7 @@ jobs:
     - name: build with pyinstaller
       run: |
         pyinstaller autocutmarks.py
-        ls
-        ls dist
+    - uses: actions/upload-artifact@v2
+      with:
+        name: AutoCutMarksLinux
+        path: dist/autocutmarks
