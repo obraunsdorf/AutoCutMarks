@@ -1,7 +1,6 @@
 import cv2 as cv
 import time
 import numpy as np
-from numpy_ringbuffer import RingBuffer
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
