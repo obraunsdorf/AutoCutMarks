@@ -12,7 +12,16 @@ on:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            artifact_name: AutoCutMarksWindows
+          - os: ubuntu-latest
+            artifact_name: AutoCutMarksLinux
+        
 
     steps:
     - uses: actions/checkout@v2
@@ -41,7 +50,9 @@ jobs:
     - name: build with pyinstaller
       run: |
         pyinstaller autocutmarks.py
+        ls
+        ls dist
     - uses: actions/upload-artifact@v2
       with:
-        name: AutoCutMarksLinux
+        name: ${{ matrix.artifact_name }}
         path: dist/autocutmarks
