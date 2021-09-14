@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import json
 import scipy.signal
 import sys
+import argparse
 
 GRIDIRON = []
 FRAMEWINDOWNAME = "AutoCutMarks"
@@ -20,10 +21,11 @@ def clicked(event, x, y, flags, param):
         text = "x: " + str(x) + " y: " + str(y)
         print(text)
 
-def setGridIron(videofile):
+def setGridIron(videofile, startframe, endframe):
     global GRIDIRON
     cap = cv.VideoCapture(videofile)
     fps = cap.get(cv.CAP_PROP_FPS)
+    cap.set(cv.CAP_PROP_POS_FRAMES, startframe)
     ret, frame1 = cap.read()
     ret, frame2 = cap.read()
 
@@ -57,6 +59,10 @@ def setGridIron(videofile):
             break
         frame1 = frame2
         ret, frame2 = cap.read()
+        frameNo = cap.get(cv.CAP_PROP_POS_FRAMES)
+        if endframe != -1:
+            if frameNo >= endframe:
+                break
 
     cap.release()
     cv.destroyAllWindows()
@@ -134,9 +140,10 @@ def analyze_motion_graph(motionGraph, snap_threshold_percentage):
         
 
 
-def generateMotionGraph(videofile, gridiron_near, gridiron_far):
+def generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron_far, threshold_near, threshold_far):
     cap = cv.VideoCapture(videofile)
     total_number_frames = cap.get(cv.CAP_PROP_FRAME_COUNT)
+    cap.set(cv.CAP_PROP_POS_FRAMES, startframe)
     ret, frame1 = cap.read()
     ret, frame2 = cap.read()
     motionGraph = []
@@ -145,7 +152,7 @@ def generateMotionGraph(videofile, gridiron_near, gridiron_far):
         print("WARNING: gridiron not set properly")
 
     # Maybe only use every 2nd or 3rd fame
-    while cap.isOpened():#json.dump(motionGraph, f)
+    while cap.isOpened():
         # if frame is read correctly ret is True
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
@@ -154,7 +161,7 @@ def generateMotionGraph(videofile, gridiron_near, gridiron_far):
         showed_frame = frame1.copy()
 
         motions = []
-        for (gridiron, minimum_contour_size) in [(gridiron_far, 500), (gridiron_near, 900)]:
+        for (gridiron, minimum_contour_size) in [(gridiron_far, threshold_far), (gridiron_near, threshold_near)]:
             frameA = frame1.copy()
             frameB = frame2.copy()
             if len(gridiron) >= 3:
@@ -200,6 +207,9 @@ def generateMotionGraph(videofile, gridiron_near, gridiron_far):
         frame1 = frame2
         ret, frame2 = cap.read()
         frameNo = cap.get(cv.CAP_PROP_POS_FRAMES)
+        if endframe != -1:
+            if frameNo >= endframe:
+                break
         if frameNo % 100 == 0:
             print("analyzed frame " + str(frameNo) + " of " + str(total_number_frames))
         #if frameNo > 2000:
@@ -247,13 +257,47 @@ def calculateCutMarks(snaps):
 # main
 ##########################
 
-print(sys.argv)
-if len(sys.argv) < 2:
-    print("please specifiy a video file")
-    exit(1)
-videofile = sys.argv[1]
+parser = argparse.ArgumentParser(
+    description='Autocutmarks - Automatically find moments of snap in 5on5 Flag Football videos', 
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter
+)
+parser.add_argument('videofile', type=str, help='path to the video file')
+parser.add_argument('outfile', type=str, help='file to store analysis results')
+parser.add_argument('-s', '--startframe', type=int, default=0, help='frame of the video to start analysis')
+parser.add_argument('-e', '--endframe', type=int, default=-1, help='frame of the video to end analysis (-1 => end of the video)')
+#parser.add_argument('-m', '--mode', choices=["calibrate-near", "calibrate-far", "analyze"], default="analyze")
+parser.add_argument('-n', '--thresholdNear', type=int, default=900, help='threshold [pixels] for detecting a player on the near side of the field')
+parser.add_argument('-f', '--thresholdFar', type=int, default=500, help='threshold [pixels] for detecting a player on the far side of the field')
+class SensitivityRange(object):
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
 
-grid_iron_near = setGridIron(videofile)
+    def __eq__(self, other):
+        return self.start <= other <= self.end
+
+    def __contains__(self, item):
+        return self.__eq__(item)
+
+    def __iter__(self):
+        yield self
+
+    def __repr__(self):
+        return '[{0},{1}]'.format(self.start, self.end)
+parser.add_argument('-y', '--sensitivity', type=SensitivityRange, default=0.6, help='Sensitivity of snap detection')
+args = parser.parse_args()
+
+videofile = args.videofile
+outfile = args.outfile
+sensitivity =  1 - args.sensitivity
+startframe = args.startframe
+endframe = args.endframe
+assert(endframe == -1 or startframe < endframe)
+threshold_near = args.thresholdNear
+threshold_far = args.thresholdFar
+
+
+grid_iron_near = setGridIron(videofile, startframe, endframe)
 #grid_iron_near = [
 #(518, 245),
 #(250, 371),
@@ -271,7 +315,7 @@ grid_iron_near = setGridIron(videofile)
 #(1259, 250),
 #]
 
-grid_iron_far = setGridIron(videofile)
+grid_iron_far = setGridIron(videofile, startframe, endframe)
 #grid_iron_far = [
 #    (722, 165),
 #    (523 , 237),
@@ -285,12 +329,16 @@ if load_test_graph:
     motionGraph = json.load(f)
 else:
     f = open("motionGraph.json", "w")
-    motionGraph  = generateMotionGraph(videofile, grid_iron_near, grid_iron_far)
+    motionGraph  = generateMotionGraph(videofile, startframe, endframe, grid_iron_near, grid_iron_far, threshold_near, threshold_far)
     json.dump(motionGraph, f)
 f.close
 
-snaps = analyze_motion_graph(motionGraph,0.4) 
+snaps = analyze_motion_graph(motionGraph, sensitivity) 
 
 cutmarks = calculateCutMarks(snaps)
+f = open(outfile, "w")
+for cutmark in cutmarks:
+    f.write(str(cutmark) + "\n")
+f.close
 
 test_analyzed_cutmarks(videofile, cutmarks)
