@@ -1,3 +1,5 @@
+![Building](https://github.com/obraunsdorf/AutoCutMarks/actions/workflows/ci.yml/badge.svg)
+
 AutoCutMarks
 ==================
 
