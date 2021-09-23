@@ -222,7 +222,7 @@ def generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron
 
 
 
-def test_analyzed_cutmarks(videofile, cutmarks):
+def validate_calculated_cutmarks(videofile, cutmarks):
     cv.namedWindow(FRAMEWINDOWNAME)
     cap = cv.VideoCapture(videofile)
     fps = cap.get(cv.CAP_PROP_FPS)
@@ -265,9 +265,11 @@ parser.add_argument('videofile', type=str, help='path to the video file')
 parser.add_argument('outfile', type=str, help='file to store analysis results')
 parser.add_argument('-s', '--startframe', type=int, default=0, help='frame of the video to start analysis')
 parser.add_argument('-e', '--endframe', type=int, default=-1, help='frame of the video to end analysis (-1 => end of the video)')
-#parser.add_argument('-m', '--mode', choices=["calibrate-near", "calibrate-far", "analyze"], default="analyze")
+parser.add_argument('-m', '--mode', choices=["calibrate-near", "calibrate-far", "analyze", "use-cached"], default="analyze")
 parser.add_argument('-n', '--thresholdNear', type=int, default=900, help='threshold [pixels] for detecting a player on the near side of the field')
 parser.add_argument('-f', '--thresholdFar', type=int, default=500, help='threshold [pixels] for detecting a player on the far side of the field')
+parser.add_argument('-c', '--cacheFile', type=str, default='motionGraph.json', help='path to file where analyzed motion graph is cached (only applicable with mode "use-cached"')
+parser.add_argument('-v', '--validate', type=bool, default=False, help='show videostream to manually validate calculated moments of snaps')
 class SensitivityRange(object):
     def __init__(self, start, end):
         self.start = start
@@ -295,50 +297,57 @@ endframe = args.endframe
 assert(endframe == -1 or startframe < endframe)
 threshold_near = args.thresholdNear
 threshold_far = args.thresholdFar
+mode = args.mode
+cachefile = args.cacheFile
+validate = args.validate
 
 
-grid_iron_near = setGridIron(videofile, startframe, endframe)
-#grid_iron_near = [
-#(518, 245),
-#(250, 371),
-#(7, 504),
-#(6, 715),
-#(321, 761),
-#(683, 782),
-#(1105, 796),
-#(1538, 784),
-#(1907, 746),
-#(1908, 650),
-#(1605, 437),
-#(1399, 321),
-#(1300, 268),
-#(1259, 250),
-#]
+if mode in ["calibrate-near", "analyze"]:
+    grid_iron_near = setGridIron(videofile, startframe, endframe)
+    #grid_iron_near = [
+    #(518, 245),
+    #(250, 371),
+    #(7, 504),
+    #(6, 715),
+    #(321, 761),
+    #(683, 782),
+    #(1105, 796),
+    #(1538, 784),
+    #(1907, 746),
+    #(1908, 650),
+    #(1605, 437),
+    #(1399, 321),
+    #(1300, 268),
+    #(1259, 250),
+    #]
 
-grid_iron_far = setGridIron(videofile, startframe, endframe)
-#grid_iron_far = [
-#    (722, 165),
-#    (523 , 237),
-#    (1303 , 259),
-#    (1143 , 174),
-# ]
+if mode in ["calibrate-far", "analyze"]:
+    grid_iron_far = setGridIron(videofile, startframe, endframe)
+    #grid_iron_far = [
+    #    (722, 165),
+    #    (523 , 237),
+    #    (1303 , 259),
+    #    (1143 , 174),
+    # ]
 
-load_test_graph = False
-if load_test_graph:
-    f = open("motionGraph.json", "r")
-    motionGraph = json.load(f)
-else:
-    f = open("motionGraph.json", "w")
-    motionGraph  = generateMotionGraph(videofile, startframe, endframe, grid_iron_near, grid_iron_far, threshold_near, threshold_far)
-    json.dump(motionGraph, f)
-f.close
+if mode in ["use-cached", "analyze"]:
+    if mode == "use-cached":
+        f = open(cachefile, "r")
+        motionGraph = json.load(f)
+        f.close()
+    elif mode == "analyze":
+        f = open(cachefile, "w")
+        motionGraph  = generateMotionGraph(videofile, startframe, endframe, grid_iron_near, grid_iron_far, threshold_near, threshold_far)
+        json.dump(motionGraph, f)
+    f.close
 
-snaps = analyze_motion_graph(motionGraph, sensitivity) 
+    snaps = analyze_motion_graph(motionGraph, sensitivity) 
 
-cutmarks = calculateCutMarks(snaps)
-f = open(outfile, "w")
-for cutmark in cutmarks:
-    f.write(str(cutmark) + "\n")
-f.close
+    cutmarks = calculateCutMarks(snaps)
+    f = open(outfile, "w")
+    for cutmark in cutmarks:
+        f.write(str(cutmark) + "\n")
+    f.close
 
-test_analyzed_cutmarks(videofile, cutmarks)
+    if validate:
+        validate_calculated_cutmarks(videofile, cutmarks)
