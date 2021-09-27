@@ -8,10 +8,28 @@ import json
 import scipy.signal
 import sys
 import argparse
+import concurrent.futures
+from datetime import datetime
+from boundedexecutor import BoundedExecutor
+from collections import OrderedDict
+
 
 GRIDIRON = []
 FRAMEWINDOWNAME = "AutoCutMarks"
 DEBUG = False
+
+def downsampling(cv_read_result):
+    ret, large_frame = cv_read_result
+    if not ret:
+        return ret, None
+    else:
+        ratio = 0.4
+        small_frame = cv.resize(large_frame, # original image
+            (0,0), # set fx and fy, not the final size
+            fx=ratio, 
+            fy=ratio, 
+            interpolation=cv.INTER_NEAREST)
+        return ret, small_frame
 
 
 def clicked(event, x, y, flags, param):
@@ -131,6 +149,7 @@ def analyze_motion_graph(motionGraph, snap_threshold_percentage):
     #    firstDeriviative.append((i, increase))
     #plot_motion_graph(motionGraph, debug=False)
     plt.plot(x_coords, smoothed_y)
+    plt.axhline(y=max_increase * snap_threshold_percentage, color='r', linestyle='-')
     plot_motion_graph(firstDeriviative, debug=False)
     plt.show()
 
@@ -148,7 +167,7 @@ def calibrate(videofile, startframe, threshold, gridiron):
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             break
-        analyze_and_show_motions(frame1, frame2, gridiron, threshold, frame1)
+        analyze_frames(frame1, frame2, gridiron, threshold, frame1)
         
         cv.imshow(FRAMEWINDOWNAME, frame1)
         if cv.waitKey(1) == ord('q'):
@@ -159,20 +178,31 @@ def calibrate(videofile, startframe, threshold, gridiron):
     cv.destroyAllWindows()
 
 
+def analyze_frames_all_gridirons(frame1, frame2, gridirons_and_thresholds, showed_frame, frameNo):
+    #perf_start = datetime.now()
+    motions_count = 0
+    for (gridiron, minimum_contour_size) in gridirons_and_thresholds:
+        motions = analyze_frames(frame1, frame2, gridiron, minimum_contour_size, showed_frame)
+        motions_count += len(motions)
+    
+    #perf_end = datetime.now()
+    #print("#analyzing frame " + str(frameNo) + " took " + str((perf_end - perf_start).total_seconds()))
+    return (frameNo, motions_count)
 
-def analyze_and_show_motions(frame1, frame2, gridiron, minimum_contour_size, showed_frame):
-    frameA = frame1.copy()
-    frameB = frame2.copy()
+
+def analyze_frames(frame1, frame2, gridiron, minimum_contour_size, showed_frame):
+    #frameA = frame1.copy()
+    #frameB = frame2.copy()
     if len(gridiron) >= 3:
         pts = np.array(gridiron)
-        mask1= np.zeros(frameA.shape[:2], np.uint8)
-        mask2= np.zeros(frameB.shape[:2], np.uint8)
+        mask1= np.zeros(frame1.shape[:2], np.uint8)
+        mask2= np.zeros(frame2.shape[:2], np.uint8)
         cv.drawContours(mask1, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
         cv.drawContours(mask2, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
-        frameA = cv.bitwise_and(frameA, frameA, mask=mask1)
-        frameB = cv.bitwise_and(frameB, frameB, mask=mask2)
+        frame1 = cv.bitwise_and(frame1, frame1, mask=mask1)
+        frame2 = cv.bitwise_and(frame2, frame2, mask=mask2)
 
-    diff = cv.absdiff(frameA, frameB)
+    diff = cv.absdiff(frame1, frame2)
     gray = cv.cvtColor(diff, cv.COLOR_BGR2GRAY)
     blur = cv.GaussianBlur(gray,(5,5), 0)
     _, threshold = cv.threshold(blur, 20, 255, cv.THRESH_BINARY)
@@ -189,6 +219,63 @@ def analyze_and_show_motions(frame1, frame2, gridiron, minimum_contour_size, sho
 
     return motions    
 
+
+def parallel_generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron_far, threshold_near, threshold_far):
+    cap = cv.VideoCapture(videofile)
+    total_number_frames = endframe - startframe
+    cap.set(cv.CAP_PROP_POS_FRAMES, startframe)
+    ret, frame1 = cap.read()
+    ret, frame2 = cap.read()
+    motionGraph = {}
+    cpus = cv.getNumberOfCPUs() - 1
+    print("working in parallel with " + str(cpus) + " CPUs")
+    executor = BoundedExecutor(max_workers=cpus, bound=cpus)
+    futures = []
+
+    if len(gridiron_near) < 3 or len(gridiron_far) < 3:
+        print("WARNING: gridiron not set properly")
+
+    # Maybe only use every 2nd or 3rd fame
+    while cap.isOpened():
+        # if frame is read correctly ret is True
+        if not ret:
+            print("Can't receive frame (stream end?). Exiting ...")
+            break
+        
+        #showed_frame = frame1.copy()
+
+        gridirons_and_thresholds = [(gridiron_far, threshold_far), (gridiron_near, threshold_near)]
+        
+        current_frame_number = cap.get(cv.CAP_PROP_POS_FRAMES)
+        motion_future = executor.submit(analyze_frames_all_gridirons, frame1, frame2, gridirons_and_thresholds, frame1, current_frame_number)
+        futures.append(motion_future)
+
+        if current_frame_number % 100 == 0:
+            print("read frame " + str(current_frame_number) + "(" + str(current_frame_number-startframe) + "/" + str(total_number_frames) + ")")
+
+        if endframe != -1:
+            if current_frame_number >= endframe:
+                break
+
+        frame1 = frame2
+        #perf_start = datetime.now()
+        ret, frame2 = cap.read()
+        #perf_end = datetime.now()
+        #print("+reading frame " + str(current_frame_number) + " took " + str((perf_end - perf_start).total_seconds()))
+    
+    print("wait for image recognition results..")
+    for future in concurrent.futures.as_completed(futures):
+        (frameNo, motion_count) = future.result()
+        #print("frameNo:" + str(frameNo) + " => " + str(motion_count) + " motions")
+        motionGraph[int(frameNo)]=motion_count
+
+        frameNo = cap.get(cv.CAP_PROP_POS_FRAMES)
+    print("calculated all image recognition results")
+
+    cap.release()
+    result = sorted(motionGraph.items())
+    return result
+        
 
 def generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron_far, threshold_near, threshold_far):
     cap = cv.VideoCapture(videofile)
@@ -211,7 +298,8 @@ def generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron
         showed_frame = frame1.copy()
 
         motions = []
-        for (gridiron, minimum_contour_size) in [(gridiron_far, threshold_far), (gridiron_near, threshold_near)]:
+        gridirons_and_thresholds = [(gridiron_far, threshold_far), (gridiron_near, threshold_near)]     
+        for (gridiron, minimum_contour_size) in gridirons_and_thresholds:
             frameA = frame1.copy()
             frameB = frame2.copy()
             if len(gridiron) >= 3:
@@ -392,7 +480,7 @@ if mode in ["use-cached", "analyze"]:
         f.close()
     elif mode == "analyze":
         f = open(cachefile, "w")
-        motionGraph  = generateMotionGraph(videofile, startframe, endframe, grid_iron_near, grid_iron_far, threshold_near, threshold_far)
+        motionGraph  = parallel_generateMotionGraph(videofile, startframe, endframe, grid_iron_near, grid_iron_far, threshold_near, threshold_far)
         json.dump(motionGraph, f)
     f.close
 
