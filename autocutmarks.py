@@ -136,8 +136,58 @@ def analyze_motion_graph(motionGraph, snap_threshold_percentage):
 
     return snaps
     
+def calibrate(videofile, startframe, threshold, gridiron):
+    cap = cv.VideoCapture(videofile)
+    fps = cap.get(cv.CAP_PROP_FPS)
+    cap.set(cv.CAP_PROP_POS_FRAMES, startframe)
+    ret, frame1 = cap.read()
+    ret, frame2 = cap.read()
 
+    while cap.isOpened():
+        # if frame is read correctly ret is True
+        if not ret:
+            print("Can't receive frame (stream end?). Exiting ...")
+            break
+        analyze_and_show_motions(frame1, frame2, gridiron, threshold, frame1)
         
+        cv.imshow(FRAMEWINDOWNAME, frame1)
+        if cv.waitKey(1) == ord('q'):
+            break
+        frame1 = frame2
+        ret, frame2 = cap.read()
+    cap.release()
+    cv.destroyAllWindows()
+
+
+
+def analyze_and_show_motions(frame1, frame2, gridiron, minimum_contour_size, showed_frame):
+    frameA = frame1.copy()
+    frameB = frame2.copy()
+    if len(gridiron) >= 3:
+        pts = np.array(gridiron)
+        mask1= np.zeros(frameA.shape[:2], np.uint8)
+        mask2= np.zeros(frameB.shape[:2], np.uint8)
+        cv.drawContours(mask1, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
+        cv.drawContours(mask2, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
+        frameA = cv.bitwise_and(frameA, frameA, mask=mask1)
+        frameB = cv.bitwise_and(frameB, frameB, mask=mask2)
+
+    diff = cv.absdiff(frameA, frameB)
+    gray = cv.cvtColor(diff, cv.COLOR_BGR2GRAY)
+    blur = cv.GaussianBlur(gray,(5,5), 0)
+    _, threshold = cv.threshold(blur, 20, 255, cv.THRESH_BINARY)
+    dilated = cv.dilate(threshold, None, iterations=3)
+    contours, _ = cv.findContours(dilated, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+
+    motions = []
+    for contour in contours:
+        if cv.contourArea(contour) < minimum_contour_size:
+            continue
+        motions.append(contour)
+        (x,y, w,h) = cv.boundingRect(contour)
+        cv.rectangle(showed_frame, (x,y), (x+w, y+h), (0,255,0), 2)
+
+    return motions    
 
 
 def generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron_far, threshold_near, threshold_far):
@@ -248,7 +298,8 @@ def calculateCutMarks(snaps):
     for snap in snaps:
         begin = max(0, snap-2*fps)
         end = snap + 10*fps
-        cutmarks.append((begin, end))
+        #cutmarks.append((begin, end))  // I guess we only need the beginning
+        cutmarks.append(begin)
 
     return cutmarks
     
@@ -265,7 +316,7 @@ parser.add_argument('videofile', type=str, help='path to the video file')
 parser.add_argument('outfile', type=str, help='file to store analysis results')
 parser.add_argument('-s', '--startframe', type=int, default=0, help='frame of the video to start analysis')
 parser.add_argument('-e', '--endframe', type=int, default=-1, help='frame of the video to end analysis (-1 => end of the video)')
-parser.add_argument('-m', '--mode', choices=["calibrate-near", "calibrate-far", "analyze", "use-cached"], default="analyze")
+parser.add_argument('-M', '--mode', choices=["calibrate-near", "calibrate-far", "analyze", "use-cached"], default="analyze")
 parser.add_argument('-n', '--thresholdNear', type=int, default=900, help='threshold [pixels] for detecting a player on the near side of the field')
 parser.add_argument('-f', '--thresholdFar', type=int, default=500, help='threshold [pixels] for detecting a player on the far side of the field')
 parser.add_argument('-c', '--cacheFile', type=str, default='motionGraph.json', help='path to file where analyzed motion graph is cached (only applicable with mode "use-cached"')
@@ -304,6 +355,8 @@ validate = args.validate
 
 if mode in ["calibrate-near", "analyze"]:
     grid_iron_near = setGridIron(videofile, startframe, endframe)
+    if mode == "calibrate-near":
+        calibrate(videofile, startframe, threshold_near, grid_iron_near)
     #grid_iron_near = [
     #(518, 245),
     #(250, 371),
@@ -323,6 +376,8 @@ if mode in ["calibrate-near", "analyze"]:
 
 if mode in ["calibrate-far", "analyze"]:
     grid_iron_far = setGridIron(videofile, startframe, endframe)
+    if mode == "calibrate-far":
+        calibrate(videofile, startframe, threshold_far, grid_iron_far)
     #grid_iron_far = [
     #    (722, 165),
     #    (523 , 237),
