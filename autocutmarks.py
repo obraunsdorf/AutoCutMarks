@@ -178,11 +178,11 @@ def calibrate(videofile, startframe, threshold, gridiron):
     cv.destroyAllWindows()
 
 
-def analyze_frames_all_gridirons(frame1, frame2, gridirons_and_thresholds, showed_frame, frameNo):
+def analyze_frames_all_gridirons(frame1, frame2, masks_and_thresholds, showed_frame, frameNo):
     #perf_start = datetime.now()
     motions_count = 0
-    for (gridiron, minimum_contour_size) in gridirons_and_thresholds:
-        motions = analyze_frames(frame1, frame2, gridiron, minimum_contour_size, showed_frame)
+    for (gridiron_mask, minimum_contour_size) in masks_and_thresholds:
+        motions = analyze_frames(frame1, frame2, gridiron_mask, minimum_contour_size, showed_frame)
         motions_count += len(motions)
     
     #perf_end = datetime.now()
@@ -190,17 +190,12 @@ def analyze_frames_all_gridirons(frame1, frame2, gridirons_and_thresholds, showe
     return (frameNo, motions_count)
 
 
-def analyze_frames(frame1, frame2, gridiron, minimum_contour_size, showed_frame):
-    #frameA = frame1.copy()
-    #frameB = frame2.copy()
-    if len(gridiron) >= 3:
-        pts = np.array(gridiron)
-        mask1= np.zeros(frame1.shape[:2], np.uint8)
-        mask2= np.zeros(frame2.shape[:2], np.uint8)
-        cv.drawContours(mask1, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
-        cv.drawContours(mask2, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
-        frame1 = cv.bitwise_and(frame1, frame1, mask=mask1)
-        frame2 = cv.bitwise_and(frame2, frame2, mask=mask2)
+def analyze_frames(frame1, frame2, gridiron_mask, minimum_contour_size, showed_frame):
+    frame1 = cv.bitwise_and(frame1, frame1, mask=gridiron_mask)
+    frame2 = cv.bitwise_and(frame2, frame2, mask=gridiron_mask)
+
+    #frame1 = cv.UMat(frame1)  # use GPU accelleration
+    #frame2 = cv.UMat(frame2)  # use GPU accelleration
 
     diff = cv.absdiff(frame1, frame2)
     gray = cv.cvtColor(diff, cv.COLOR_BGR2GRAY)
@@ -214,8 +209,8 @@ def analyze_frames(frame1, frame2, gridiron, minimum_contour_size, showed_frame)
         if cv.contourArea(contour) < minimum_contour_size:
             continue
         motions.append(contour)
-        (x,y, w,h) = cv.boundingRect(contour)
-        cv.rectangle(showed_frame, (x,y), (x+w, y+h), (0,255,0), 2)
+        #(x,y, w,h) = cv.boundingRect(contour)
+        #cv.rectangle(showed_frame, (x,y), (x+w, y+h), (0,255,0), 2)
 
     return motions    
 
@@ -224,8 +219,9 @@ def parallel_generateMotionGraph(videofile, startframe, endframe, gridiron_near,
     cap = cv.VideoCapture(videofile)
     total_number_frames = endframe - startframe
     cap.set(cv.CAP_PROP_POS_FRAMES, startframe)
-    ret, frame1 = cap.read()
+    ret1, frame1 = cap.read()
     ret, frame2 = cap.read()
+    gridirons_and_thresholds = [(gridiron_far, threshold_far), (gridiron_near, threshold_near)] # TODO refactor this out of this method
     motionGraph = {}
     cpus = cv.getNumberOfCPUs() - 1
     print("working in parallel with " + str(cpus) + " CPUs")
@@ -233,7 +229,20 @@ def parallel_generateMotionGraph(videofile, startframe, endframe, gridiron_near,
     futures = []
 
     if len(gridiron_near) < 3 or len(gridiron_far) < 3:
-        print("WARNING: gridiron not set properly")
+        print("ERROR: gridiron not set properly")
+        exit(1)
+
+    assert ret1 and ret
+
+    # Assuming that the shape of frames is the same throughout the whole video,
+    # we only have to calculate the mask once per gridiron
+    masks_and_thresholds = []
+    for (gridiron, threshold) in gridirons_and_thresholds:
+        mask = np.zeros(frame2.shape[:2], np.uint8)
+        pts = np.array(gridiron)
+        cv.drawContours(mask, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
+        masks_and_thresholds.append((mask, threshold))
+    assert(len(masks_and_thresholds) == 2)
 
     # Maybe only use every 2nd or 3rd fame
     while cap.isOpened():
@@ -241,13 +250,12 @@ def parallel_generateMotionGraph(videofile, startframe, endframe, gridiron_near,
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             break
-        
-        #showed_frame = frame1.copy()
 
-        gridirons_and_thresholds = [(gridiron_far, threshold_far), (gridiron_near, threshold_near)]
+        #showed_frame = frame1.copy()
         
         current_frame_number = cap.get(cv.CAP_PROP_POS_FRAMES)
-        motion_future = executor.submit(analyze_frames_all_gridirons, frame1, frame2, gridirons_and_thresholds, frame1, current_frame_number)
+        
+        motion_future = executor.submit(analyze_frames_all_gridirons, frame1, frame2, masks_and_thresholds, frame1, current_frame_number)
         futures.append(motion_future)
 
         if current_frame_number % 100 == 0:
