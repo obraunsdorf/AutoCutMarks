@@ -215,6 +215,65 @@ def analyze_frames(frame1, frame2, gridiron_mask, minimum_contour_size, showed_f
     return motions    
 
 
+def unparallel_generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron_far, threshold_near, threshold_far):
+    cap = cv.VideoCapture(videofile)
+    total_number_frames = endframe - startframe
+    cap.set(cv.CAP_PROP_POS_FRAMES, startframe)
+    ret1, frame1 = cap.read()
+    ret, frame2 = cap.read()
+    gridirons_and_thresholds = [(gridiron_far, threshold_far), (gridiron_near, threshold_near)] # TODO refactor this out of this method
+    motionGraph = {}
+
+    if len(gridiron_near) < 3 or len(gridiron_far) < 3:
+        print("ERROR: gridiron not set properly")
+        exit(1)
+
+    assert ret1 and ret
+
+    # Assuming that the shape of frames is the same throughout the whole video,
+    # we only have to calculate the mask once per gridiron
+    masks_and_thresholds = []
+    for (gridiron, threshold) in gridirons_and_thresholds:
+        mask = np.zeros(frame2.shape[:2], np.uint8)
+        pts = np.array(gridiron)
+        cv.drawContours(mask, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
+        masks_and_thresholds.append((mask, threshold))
+    assert(len(masks_and_thresholds) == 2)
+
+    # Maybe only use every 2nd or 3rd fame
+    while cap.isOpened():
+        # if frame is read correctly ret is True
+        if not ret:
+            print("Can't receive frame (stream end?). Exiting ...")
+            break
+
+        #showed_frame = frame1.copy()
+        
+        current_frame_number = cap.get(cv.CAP_PROP_POS_FRAMES)
+
+        (frameNo, motion_count) = analyze_frames_all_gridirons(frame1, frame2, masks_and_thresholds, frame1, current_frame_number)
+        motionGraph[int(frameNo)]=motion_count
+
+        if current_frame_number % 100 == 0:
+            print("read frame " + str(current_frame_number) + "(" + str(current_frame_number-startframe) + "/" + str(total_number_frames) + ")")
+
+        if endframe != -1:
+            if current_frame_number >= endframe:
+                break
+
+        frame1 = frame2
+        #perf_start = datetime.now()
+        ret, frame2 = cap.read()
+        #perf_end = datetime.now()
+        #print("+reading frame " + str(current_frame_number) + " took " + str((perf_end - perf_start).total_seconds()))
+    
+    print("calculated all image recognition results")
+
+    cap.release()
+    result = sorted(motionGraph.items())
+    return result
+
+
 def parallel_generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron_far, threshold_near, threshold_far):
     cap = cv.VideoCapture(videofile)
     total_number_frames = endframe - startframe
@@ -285,7 +344,7 @@ def parallel_generateMotionGraph(videofile, startframe, endframe, gridiron_near,
     return result
         
 
-def generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron_far, threshold_near, threshold_far):
+def old_generateMotionGraph(videofile, startframe, endframe, gridiron_near, gridiron_far, threshold_near, threshold_far):
     cap = cv.VideoCapture(videofile)
     total_number_frames = cap.get(cv.CAP_PROP_FRAME_COUNT)
     cap.set(cv.CAP_PROP_POS_FRAMES, startframe)
