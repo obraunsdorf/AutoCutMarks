@@ -432,12 +432,10 @@ def validate_calculated_cutmarks(videofile, cutmarks):
     cv.namedWindow(FRAMEWINDOWNAME)
     cap = cv.VideoCapture(videofile)
     fps = cap.get(cv.CAP_PROP_FPS)
-    for (begin, end) in cutmarks:
+    for begin in cutmarks:
         cap.set(cv.CAP_PROP_POS_FRAMES, begin-1)
-        current_position = begin-1
-        while current_position < end:
+        while True:
             ret, frame = cap.read()
-            current_position  = cap.get(cv.CAP_PROP_POS_FRAMES)
             if ret and cap.isOpened():
                 cv.imshow(FRAMEWINDOWNAME, frame)
                 if cv.waitKey(int(fps)) == ord('q'):
