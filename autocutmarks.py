@@ -154,7 +154,19 @@ def analyze_motion_graph(motionGraph, snap_threshold_percentage):
     plt.show()
 
     return snaps
+
+def calculate_gridironmasks(example_frame, gridirons_and_thresholds):
+    masks_and_thresholds = []
+    for (gridiron, threshold) in gridirons_and_thresholds:
+        mask = np.zeros(example_frame.shape[:2], np.uint8)
+        pts = np.array(gridiron)
+        cv.drawContours(mask, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
+        masks_and_thresholds.append((mask, threshold))
+    #assert(len(masks_and_thresholds) == 2)
     
+    return masks_and_thresholds
+
+
 def calibrate(videofile, startframe, threshold, gridiron):
     cap = cv.VideoCapture(videofile)
     fps = cap.get(cv.CAP_PROP_FPS)
@@ -162,12 +174,14 @@ def calibrate(videofile, startframe, threshold, gridiron):
     ret, frame1 = cap.read()
     ret, frame2 = cap.read()
 
+    masks_and_thresholds = calculate_gridironmasks(frame2, [(gridiron, threshold)])
+
     while cap.isOpened():
         # if frame is read correctly ret is True
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             break
-        analyze_frames(frame1, frame2, gridiron, threshold, frame1)
+        analyze_frames_all_gridirons(frame1, frame2, masks_and_thresholds, frame1, None)
         
         cv.imshow(FRAMEWINDOWNAME, frame1)
         if cv.waitKey(1) == ord('q'):
@@ -209,8 +223,9 @@ def analyze_frames(frame1, frame2, gridiron_mask, minimum_contour_size, showed_f
         if cv.contourArea(contour) < minimum_contour_size:
             continue
         motions.append(contour)
-        #(x,y, w,h) = cv.boundingRect(contour)
-        #cv.rectangle(showed_frame, (x,y), (x+w, y+h), (0,255,0), 2)
+        if showed_frame is not None:
+            (x,y, w,h) = cv.boundingRect(contour)
+            cv.rectangle(showed_frame, (x,y), (x+w, y+h), (0,255,0), 2)
 
     return motions    
 
@@ -232,13 +247,7 @@ def unparallel_generateMotionGraph(videofile, startframe, endframe, gridiron_nea
 
     # Assuming that the shape of frames is the same throughout the whole video,
     # we only have to calculate the mask once per gridiron
-    masks_and_thresholds = []
-    for (gridiron, threshold) in gridirons_and_thresholds:
-        mask = np.zeros(frame2.shape[:2], np.uint8)
-        pts = np.array(gridiron)
-        cv.drawContours(mask, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
-        masks_and_thresholds.append((mask, threshold))
-    assert(len(masks_and_thresholds) == 2)
+    masks_and_thresholds = calculate_gridironmasks(frame2, gridirons_and_thresholds)
 
     # Maybe only use every 2nd or 3rd fame
     while cap.isOpened():
@@ -251,7 +260,7 @@ def unparallel_generateMotionGraph(videofile, startframe, endframe, gridiron_nea
         
         current_frame_number = cap.get(cv.CAP_PROP_POS_FRAMES)
 
-        (frameNo, motion_count) = analyze_frames_all_gridirons(frame1, frame2, masks_and_thresholds, frame1, current_frame_number)
+        (frameNo, motion_count) = analyze_frames_all_gridirons(frame1, frame2, masks_and_thresholds, None, current_frame_number)
         motionGraph[int(frameNo)]=motion_count
 
         if current_frame_number % 100 == 0:
@@ -291,17 +300,9 @@ def parallel_generateMotionGraph(videofile, startframe, endframe, gridiron_near,
         print("ERROR: gridiron not set properly")
         exit(1)
 
-    assert ret1 and ret
-
     # Assuming that the shape of frames is the same throughout the whole video,
     # we only have to calculate the mask once per gridiron
-    masks_and_thresholds = []
-    for (gridiron, threshold) in gridirons_and_thresholds:
-        mask = np.zeros(frame2.shape[:2], np.uint8)
-        pts = np.array(gridiron)
-        cv.drawContours(mask, [pts], -1, (255, 255, 255), -1, cv.LINE_AA)
-        masks_and_thresholds.append((mask, threshold))
-    assert(len(masks_and_thresholds) == 2)
+    masks_and_thresholds = calculate_gridironmasks(frame2, gridirons_and_thresholds)
 
     # Maybe only use every 2nd or 3rd fame
     while cap.isOpened():
@@ -314,7 +315,7 @@ def parallel_generateMotionGraph(videofile, startframe, endframe, gridiron_near,
         
         current_frame_number = cap.get(cv.CAP_PROP_POS_FRAMES)
         
-        motion_future = executor.submit(analyze_frames_all_gridirons, frame1, frame2, masks_and_thresholds, frame1, current_frame_number)
+        motion_future = executor.submit(analyze_frames_all_gridirons, frame1, frame2, masks_and_thresholds, None, current_frame_number)
         futures.append(motion_future)
 
         if current_frame_number % 100 == 0:
