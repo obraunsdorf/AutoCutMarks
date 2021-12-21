@@ -194,8 +194,8 @@ def analyze_frames(frame1, frame2, gridiron_mask, minimum_contour_size, showed_f
     frame1 = cv.bitwise_and(frame1, frame1, mask=gridiron_mask)
     frame2 = cv.bitwise_and(frame2, frame2, mask=gridiron_mask)
 
-    frame1 = cv.UMat(frame1)  # use GPU accelleration
-    frame2 = cv.UMat(frame2)  # use GPU accelleration
+    #frame1 = cv.UMat(frame1)  # use GPU accelleration
+    #frame2 = cv.UMat(frame2)  # use GPU accelleration
 
     diff = cv.absdiff(frame1, frame2)
     gray = cv.cvtColor(diff, cv.COLOR_BGR2GRAY)
