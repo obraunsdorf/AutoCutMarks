@@ -459,7 +459,17 @@ def calculateCutMarks(snaps):
 
     return cutmarks
     
+def sensitivityRange(arg):
+    try:
+        value = float(arg)
+    except ValueError as err:
+       raise argparse.ArgumentTypeError(str(err))
 
+    if value < 0.0 or value > 1.0:
+        message = "Expected 0.0 <= value <= 1.0 got value = {}".format(value)
+        raise argparse.ArgumentTypeError(message)
+
+    return value
 ##########################
 # main
 ##########################
@@ -477,23 +487,7 @@ parser.add_argument('-n', '--thresholdNear', type=int, default=900, help='thresh
 parser.add_argument('-f', '--thresholdFar', type=int, default=500, help='threshold [pixels] for detecting a player on the far side of the field')
 parser.add_argument('-c', '--cacheFile', type=str, default='motionGraph.json', help='path to file where analyzed motion graph is cached (only applicable with mode "use-cached"')
 parser.add_argument('-v', '--validate', type=bool, default=False, help='show videostream to manually validate calculated moments of snaps')
-class SensitivityRange(object):
-    def __init__(self, start, end):
-        self.start = start
-        self.end = end
-
-    def __eq__(self, other):
-        return self.start <= other <= self.end
-
-    def __contains__(self, item):
-        return self.__eq__(item)
-
-    def __iter__(self):
-        yield self
-
-    def __repr__(self):
-        return '[{0},{1}]'.format(self.start, self.end)
-parser.add_argument('-y', '--sensitivity', type=SensitivityRange, default=0.6, help='Sensitivity of snap detection')
+parser.add_argument('-y', '--sensitivity', type=sensitivityRange, default=0.6, help='Sensitivity of snap detection')
 args = parser.parse_args()
 
 videofile = args.videofile
